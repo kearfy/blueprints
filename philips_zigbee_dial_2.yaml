@@ -3,6 +3,15 @@ blueprint:
   description: Control multiple light groups with a Hue Tap Dial Switch
   domain: automation
   input:
+    remote:
+      name: Remote
+      description: The Philips Hue Tap Dial Switch
+      selector:
+        device:
+          integration: zha
+          manufacturer: Philips
+          model: RDM002
+          multiple: false
     main_area:
       name: Main Area
       description: The main area of lights to be controlled
@@ -79,15 +88,6 @@ blueprint:
       default: []
       selector:
         action: {}
-    remote:
-      name: Remote
-      description: The Philips Hue Tap Dial Switch
-      selector:
-        device:
-          integration: zha
-          manufacturer: Philips
-          model: TAP Dial switch
-          multiple: false
 
 variables:
   main_area: !input main_area
