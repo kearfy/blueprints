@@ -1,0 +1,405 @@
+blueprint:
+  name: Philips Hue Tap Dial Switch Controller
+  description: Control multiple light groups with a Hue Tap Dial Switch
+  domain: automation
+  input:
+    main_area:
+      name: Main Area
+      description: The main area of lights to be controlled
+      selector:
+        target:
+          entity:
+            domain: light
+    lights_group_1:
+      name: Lights Group 1
+      description: The first specific set of lights (for button 2)
+      selector:
+        target:
+          entity:
+            domain: light
+    lights_group_2:
+      name: Lights Group 2
+      description: The second specific set of lights (for button 3)
+      selector:
+        target:
+          entity:
+            domain: light
+    lights_group_3:
+      name: Lights Group 3
+      description: The third specific set of lights (for button 4)
+      selector:
+        target:
+          entity:
+            domain: light
+    button_1_double_click_action:
+      name: Button 1 Double Click Action
+      description: Action to perform when button 1 is double-clicked
+      default: []
+      selector:
+        action: {}
+    button_1_triple_click_action:
+      name: Button 1 Triple Click Action
+      description: Action to perform when button 1 is triple-clicked
+      default: []
+      selector:
+        action: {}
+    button_2_double_click_action:
+      name: Button 2 Double Click Action
+      description: Action to perform when button 2 is double-clicked
+      default: []
+      selector:
+        action: {}
+    button_2_triple_click_action:
+      name: Button 2 Triple Click Action
+      description: Action to perform when button 2 is triple-clicked
+      default: []
+      selector:
+        action: {}
+    button_3_double_click_action:
+      name: Button 3 Double Click Action
+      description: Action to perform when button 3 is double-clicked
+      default: []
+      selector:
+        action: {}
+    button_3_triple_click_action:
+      name: Button 3 Triple Click Action
+      description: Action to perform when button 3 is triple-clicked
+      default: []
+      selector:
+        action: {}
+    button_4_double_click_action:
+      name: Button 4 Double Click Action
+      description: Action to perform when button 4 is double-clicked
+      default: []
+      selector:
+        action: {}
+    button_4_triple_click_action:
+      name: Button 4 Triple Click Action
+      description: Action to perform when button 4 is triple-clicked
+      default: []
+      selector:
+        action: {}
+    remote:
+      name: Remote
+      description: The Philips Hue Tap Dial Switch
+      selector:
+        device:
+          integration: zha
+          manufacturer: Philips
+          model: TAP Dial switch
+          multiple: false
+
+variables:
+  main_area: !input main_area
+  lights_group_1: !input lights_group_1
+  lights_group_2: !input lights_group_2
+  lights_group_3: !input lights_group_3
+  remote: !input remote
+  brightness_step: 5
+  # Flag to track if a button is currently being held
+  # We only use this to determine which group to control with the dial
+  active_button: none
+
+# Mode configuration to prevent actions from triggering multiple times
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_id: !input remote
+
+action:
+  - variables:
+      command: "{{ trigger.event.data.command }}"
+      cluster_id: "{{ trigger.event.data.cluster_id }}"
+      endpoint_id: "{{ trigger.event.data.endpoint_id }}"
+      args: "{{ trigger.event.data.args | default([]) }}"
+
+  # Handle button presses based on endpoint_id and command
+  - choose:
+      # Button 1 (Power)
+      - conditions:
+          - condition: template
+            value_template: "{{ endpoint_id == 1 }}"
+        sequence:
+          - choose:
+              # Single press
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'on' }}"
+                sequence:
+                  - service: homeassistant.turn_on
+                    target: !input main_area
+                    data:
+                      transition: 1
+                    alias: "Turn on all lights in main area"
+                  - service: persistent_notification.create
+                    data:
+                      message: "All lights in main area turned on"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Single press when any light is on
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'off' or command == 'off_with_effect' }}"
+                sequence:
+                  - service: homeassistant.turn_off
+                    target: !input main_area
+                    data:
+                      transition: 1
+                    alias: "Turn off all lights in main area"
+                  - service: persistent_notification.create
+                    data:
+                      message: "All lights in main area turned off"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Double press
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'toggle' }}"
+                sequence: !input button_1_double_click_action
+
+              # Triple press
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'step' and args[0] == 0 }}"
+                sequence: !input button_1_triple_click_action
+
+      # Button 2 (Group 1)
+      - conditions:
+          - condition: template
+            value_template: "{{ endpoint_id == 2 }}"
+        sequence:
+          - choose:
+              # Single press - toggle light group 1
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'on' or command == 'off' or command == 'toggle' }}"
+                sequence:
+                  - service: "{% if command == 'off' %}homeassistant.turn_off{% else %}homeassistant.turn_on{% endif %}"
+                    target: !input lights_group_1
+                    data:
+                      transition: 1
+                    alias: "Control Group 1 lights"
+                  - service: persistent_notification.create
+                    data:
+                      message: "Group 1 lights toggled"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Long press start - begin controlling group 1 with the dial
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'move' or command == 'move_with_on_off' }}"
+                sequence:
+                  - variables:
+                      active_button: button2
+                  - service: persistent_notification.create
+                    data:
+                      message: "Dial now controlling Group 1 lights"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Long press stop - return dial control to main area
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'stop' or command == 'stop_with_on_off' }}"
+                sequence:
+                  - variables:
+                      active_button: none
+                  - service: persistent_notification.create
+                    data:
+                      message: "Dial returned to controlling Main Area"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Double press
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'step' and args[0] == 1 }}"
+                sequence: !input button_2_double_click_action
+
+              # Triple press
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'step' and args[0] == 0 }}"
+                sequence: !input button_2_triple_click_action
+
+      # Button 3 (Group 2)
+      - conditions:
+          - condition: template
+            value_template: "{{ endpoint_id == 3 }}"
+        sequence:
+          - choose:
+              # Single press - toggle light group 2
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'on' or command == 'off' or command == 'toggle' }}"
+                sequence:
+                  - service: "{% if command == 'off' %}homeassistant.turn_off{% else %}homeassistant.turn_on{% endif %}"
+                    target: !input lights_group_2
+                    data:
+                      transition: 1
+                    alias: "Control Group 2 lights"
+                  - service: persistent_notification.create
+                    data:
+                      message: "Group 2 lights toggled"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Long press start - begin controlling group 2 with the dial
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'move' or command == 'move_with_on_off' }}"
+                sequence:
+                  - variables:
+                      active_button: button3
+                  - service: persistent_notification.create
+                    data:
+                      message: "Dial now controlling Group 2 lights"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Long press stop - return dial control to main area
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'stop' or command == 'stop_with_on_off' }}"
+                sequence:
+                  - variables:
+                      active_button: none
+                  - service: persistent_notification.create
+                    data:
+                      message: "Dial returned to controlling Main Area"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Double press
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'step' and args[0] == 1 }}"
+                sequence: !input button_3_double_click_action
+
+              # Triple press
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'step' and args[0] == 0 }}"
+                sequence: !input button_3_triple_click_action
+
+      # Button 4 (Group 3)
+      - conditions:
+          - condition: template
+            value_template: "{{ endpoint_id == 4 }}"
+        sequence:
+          - choose:
+              # Single press - toggle light group 3
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'on' or command == 'off' or command == 'toggle' }}"
+                sequence:
+                  - service: "{% if command == 'off' %}homeassistant.turn_off{% else %}homeassistant.turn_on{% endif %}"
+                    target: !input lights_group_3
+                    data:
+                      transition: 1
+                    alias: "Control Group 3 lights"
+                  - service: persistent_notification.create
+                    data:
+                      message: "Group 3 lights toggled"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Long press start - begin controlling group 3 with the dial
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'move' or command == 'move_with_on_off' }}"
+                sequence:
+                  - variables:
+                      active_button: button4
+                  - service: persistent_notification.create
+                    data:
+                      message: "Dial now controlling Group 3 lights"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Long press stop - return dial control to main area
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'stop' or command == 'stop_with_on_off' }}"
+                sequence:
+                  - variables:
+                      active_button: none
+                  - service: persistent_notification.create
+                    data:
+                      message: "Dial returned to controlling Main Area"
+                      title: "Tap Dial Action"
+                    alias: "Show notification (debug)"
+
+              # Double press
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'step' and args[0] == 1 }}"
+                sequence: !input button_4_double_click_action
+
+              # Triple press
+              - conditions:
+                  - condition: template
+                    value_template: "{{ command == 'step' and args[0] == 0 }}"
+                sequence: !input button_4_triple_click_action
+
+      # Handle dial rotation
+      - conditions:
+          - condition: template
+            value_template: "{{ command == 'step' or command == 'step_with_on_off' }}"
+        sequence:
+          - variables:
+              direction: "{{ args[0] }}"
+              # 0 is up, 1 is down
+              step_size: "{{ brightness_step if direction == 0 else -brightness_step }}"
+              current_target: >-
+                {% if active_button == 'button2' %}
+                  {{ lights_group_1 }}
+                {% elif active_button == 'button3' %}
+                  {{ lights_group_2 }}
+                {% elif active_button == 'button4' %}
+                  {{ lights_group_3 }}
+                {% else %}
+                  {{ main_area }}
+                {% endif %}
+          - choose:
+              # When rotating the dial and lights are on
+              - conditions:
+                  - condition: template
+                    value_template: >-
+                      {% set target = current_target %}
+                      {% set target_entities = expand(target.entity_id) if target.entity_id is defined else expand(target) %}
+                      {% for entity in target_entities %}
+                        {% if is_state(entity.entity_id, 'on') %}
+                          true
+                        {% endif %}
+                      {% endfor %}
+            sequence:
+              - service: light.turn_on
+                target: "{{ current_target }}"
+                data:
+                  brightness_step_pct: "{{ step_size }}"
+                  transition: 0.5
+                alias: "Adjust brightness of active lights"
+              - service: persistent_notification.create
+                data:
+                  message: "Adjusting brightness by {{ step_size }}% for {% if active_button == 'button2' %}Group 1{% elif active_button == 'button3' %}Group 2{% elif active_button == 'button4' %}Group 3{% else %}Main Area{% endif %}"
+                  title: "Tap Dial Action"
+                alias: "Show notification (debug)"
+            default:
+              - service: light.turn_on
+                target: "{{ current_target }}"
+                data:
+                  transition: 0.5
+                alias: "Turn on lights when rotating dial and all lights are off"
+              - service: persistent_notification.create
+                data:
+                  message: "Turning on lights for {% if active_button == 'button2' %}Group 1{% elif active_button == 'button3' %}Group 2{% elif active_button == 'button4' %}Group 3{% else %}Main Area{% endif %}"
+                  title: "Tap Dial Action"
+                alias: "Show notification (debug)"
